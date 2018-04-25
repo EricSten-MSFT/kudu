@@ -127,7 +127,8 @@ namespace Kudu.Core.Test
             string scriptPath = null,
             string nodeModulesPath = null,
             string dataPath = null,
-            string siteExtensionSettingsPath = null)
+            string siteExtensionSettingsPath = null,
+            string sitePackagesPath = null)
         {
             fileSystem = fileSystem ?? Mock.Of<IFileSystem>();
             repositoryPath = repositoryPath ?? "";
@@ -149,7 +150,7 @@ namespace Kudu.Core.Test
                     nodeModulesPath,
                     dataPath,
                     siteExtensionSettingsPath,
-                    null,
+                    sitePackagesPath,
                     null);
         }
     }

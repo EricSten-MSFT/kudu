@@ -1,6 +1,5 @@
-﻿using System;
+﻿using System.IO;
 using Kudu.Core.SourceControl;
-using System.IO;
 using Kudu.Core.Tracing;
 
 namespace Kudu.Core.Deployment
@@ -29,5 +28,8 @@ namespace Kudu.Core.Deployment
         public string AuthorEmail { get; set; }
 
         public string Message { get; set; }
+
+        // This is used if the deployment is Run-From-Zip
+        public string ZipName { get; set; }
     }
 }

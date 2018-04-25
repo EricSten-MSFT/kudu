@@ -33,13 +33,15 @@ namespace Kudu.Core.Infrastructure
         {
             // as of git 2.8.1, various unix tools are installed in multiple paths.
             // add them to %path%.
-            // As of git 2.14.1 curl no longer exists in usr/bin. Use the one from mingw32/bin instead
+            // As of git 2.14.1 curl no longer exists in usr/bin. Use the one from mingw32/bin (mingw64/bin) instead
+            // We add both mingw32 and mingw64, but it will only end up adding those that actually exist to the PATH
             string gitPath = ResolveGitInstallDirPath();
             return new[]
             {
                 Path.Combine(gitPath, "bin"),
                 Path.Combine(gitPath, "usr", "bin"),
-                Path.Combine(gitPath, "mingw32", "bin")
+                Path.Combine(gitPath, "mingw32", "bin"),
+                Path.Combine(gitPath, "mingw64", "bin")
             };
         }
 
@@ -146,14 +148,14 @@ namespace Kudu.Core.Infrastructure
             // look up whether x86 or x64 of git was installed.
             string programFiles = SystemEnvironment.GetFolderPath(SystemEnvironment.SpecialFolder.ProgramFilesX86);
             string path = Path.Combine(programFiles, "Git");
-            if (Directory.Exists(path))
+            if (Directory.Exists(path) && File.Exists(Path.Combine(path, "cmd", "git.exe")))
             {
                 return path;
             }
 
             programFiles = SystemEnvironment.GetEnvironmentVariable(ProgramFiles64bitKey) ?? SystemEnvironment.GetFolderPath(SystemEnvironment.SpecialFolder.ProgramFiles);
             path = Path.Combine(programFiles, "Git");
-            if (Directory.Exists(path))
+            if (Directory.Exists(path) && File.Exists(Path.Combine(path, "cmd", "git.exe")))
             {
                 return path;
             }

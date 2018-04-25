@@ -110,6 +110,13 @@ namespace Kudu.Contracts.Settings
             return StringUtils.IsTrueLike(value);
         }
 
+        public static bool LogTriggeredJobsToAppLogs(this IDeploymentSettingsManager settings)
+        {
+            string value = settings.GetValue(SettingsKeys.WebJobsLogTriggeredJobsToAppLogs);
+
+            return StringUtils.IsTrueLike(value);
+        }
+
         public static string GetBranch(this IDeploymentSettingsManager settings)
         {
             string value = settings.GetValue(SettingsKeys.Branch, onlyPerSite: true);
@@ -215,7 +222,7 @@ namespace Kudu.Contracts.Settings
             return settings.GetValue(SettingsKeys.UseLibGit2SharpRepository) != "0";
         }
 
-        public static bool TouchWebConfigAfterDeployment(this IDeploymentSettingsManager settings)
+        public static bool TouchWatchedFileAfterDeployment(this IDeploymentSettingsManager settings)
         {
             return settings.GetValue(SettingsKeys.TouchWebConfigAfterDeployment) != "0";
         }
@@ -242,5 +249,32 @@ namespace Kudu.Contracts.Settings
             // returning true by default here as an indicator of generally expected behavior
             return value == null || StringUtils.IsTrueLike(value);
         }
+
+        public static bool RunFromLocalZip(this IDeploymentSettingsManager settings)
+        {
+            return settings.GetFromFromZipAppSettingValue() == "1";
+        }
+
+        public static bool RunFromRemoteZip(this IDeploymentSettingsManager settings)
+        {
+            var value = settings.GetFromFromZipAppSettingValue();
+
+            return value != null && value.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetFromFromZipAppSettingValue(this IDeploymentSettingsManager settings)
+        {
+            // Try both the old and new app setting names
+            string runFromZip = settings.GetValue(SettingsKeys.RunFromZip);
+            if (String.IsNullOrEmpty(runFromZip))
+            {
+                runFromZip = settings.GetValue(SettingsKeys.RunFromZipOld);
+            }
+
+            return runFromZip;
+        }
+
+        public static bool RunFromZip(this IDeploymentSettingsManager settings)
+            => settings.RunFromLocalZip() || settings.RunFromRemoteZip();
     }
 }

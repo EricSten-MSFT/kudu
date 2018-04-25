@@ -33,6 +33,7 @@
         public const string WebJobsHistorySize = "WEBJOBS_HISTORY_SIZE";
         public const string WebJobsStopped = "WEBJOBS_STOPPED";
         public const string WebJobsDisableSchedule = "WEBJOBS_DISABLE_SCHEDULE";
+        public const string WebJobsLogTriggeredJobsToAppLogs = "WEBJOBS_LOG_TRIGGERED_JOBS_TO_APP_LOGS";
         public const string PostDeploymentActionsDirectory = "SCM_POST_DEPLOYMENT_ACTIONS_PATH";
         public const string DisableSubmodules = "SCM_DISABLE_SUBMODULES";
         public const string SiteExtensionsFeedUrl = "SCM_SITEEXTENSIONS_FEED_URL";
@@ -42,5 +43,7 @@
         public const string DockerCiEnabled = "DOCKER_ENABLE_CI";
         public const string LinuxRestartAppContainerAfterDeployment = "SCM_RESTART_APP_CONTAINER_AFTER_DEPLOYMENT";
         public const string DoBuildDuringDeployment = "SCM_DO_BUILD_DURING_DEPLOYMENT";
+        public const string RunFromZipOld = "WEBSITE_USE_ZIP";  // Old name, will eventually go away
+        public const string RunFromZip = "WEBSITE_RUN_FROM_ZIP";
     }
 }

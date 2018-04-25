@@ -28,10 +28,27 @@ namespace Kudu.Core.Deployment
         public FetchDelegate Fetch { get; set; }
         public bool AllowDeploymentWhileScmDisabled { get; set; }
 
+        // Optional.
+        // Path of the directory to be deployed to. The path should be relative to the wwwroot directory.
+        // Example: "webapps/ROOT"
+        public string TargetPath { get; set; }
+
+        // Optional.
+        // Path of the file that is watched for changes by the web server.
+        // The path must be relative to the directory where deployment is performed.
+        //
+        // Example1: If SCM_TARGET_PATH is not defined, WatchedFilePath is "web.config",
+        // file to be touched would refer to "%HOME%\site\wwwroot\web.config".
+        // Example2: If SCM_TARGET_PATH is "dir1", WatchedFilePath is "dir2/web.xml",
+        // file to be touched would refer to "%HOME%\site\wwwroot\dir1\dir2\web.xml".
+        public string WatchedFilePath { get; set; }
+
         // this is only set by GenericHandler
         // the RepositoryUrl can specify specific commitid to deploy
         // for instance, http://github.com/kuduapps/hellokudu.git#<commitid>
         public string CommitId { get; set; }
+
+        public bool CleanupTargetDirectory { get; set; }
 
         // Can set to false for deployments where we assume that the repository contains the entire
         // built site, meaning we can skip app stack detection and simply use BasicBuilder
@@ -44,5 +61,12 @@ namespace Kudu.Core.Deployment
         }
 
         public abstract IRepository GetRepository();
+
+        // If this is not set, sync triggers will look under d:\home\site\wwwroot
+        // for functionsRoot. Otherwise it'll use this path for that
+        // This is used in Run-From-Zip deployments where the content of wwwroot
+        // won't update until after a process restart. Therefore, we copy the needed
+        // files into a separate folders and run sync triggers from there.
+        public string SyncFunctionsTriggersPath { get; set; } = null;
     }
 }

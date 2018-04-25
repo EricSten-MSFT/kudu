@@ -4,6 +4,7 @@ using System.Configuration;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http.Formatting;
 using System.Web;
@@ -248,7 +249,7 @@ namespace Kudu.Services.Web.App_Start
             kernel.Bind<IWebHooksManager>().To<WebHooksManager>()
                                              .InRequestScope();
 
-            ITriggeredJobsManager triggeredJobsManager = new TriggeredJobsManager(
+            ITriggeredJobsManager triggeredJobsManager = new AggregateTriggeredJobsManager(
                 etwTraceFactory,
                 kernel.Get<IEnvironment>(),
                 kernel.Get<IDeploymentSettingsManager>(),
@@ -266,13 +267,14 @@ namespace Kudu.Services.Web.App_Start
             kernel.Bind<TriggeredJobsScheduler>().ToConstant(triggeredJobsScheduler)
                                              .InTransientScope();
 
-            IContinuousJobsManager continuousJobManager = new ContinuousJobsManager(
+            IContinuousJobsManager continuousJobManager = new AggregateContinuousJobsManager(
                 etwTraceFactory,
                 kernel.Get<IEnvironment>(),
                 kernel.Get<IDeploymentSettingsManager>(),
                 kernel.Get<IAnalytics>());
 
             OperationManager.SafeExecute(triggeredJobsManager.CleanupDeletedJobs);
+
             OperationManager.SafeExecute(continuousJobManager.CleanupDeletedJobs);
 
             kernel.Bind<IContinuousJobsManager>().ToConstant(continuousJobManager)
@@ -446,6 +448,7 @@ namespace Kudu.Services.Web.App_Start
 
             // Zip push deployment
             routes.MapHttpRoute("zip-push-deploy", "api/zipdeploy", new { controller = "PushDeployment", action = "ZipPushDeploy" }, new { verb = new HttpMethodConstraint("POST") });
+            routes.MapHttpRoute("zip-war-deploy", "api/wardeploy", new { controller = "PushDeployment", action = "WarPushDeploy" }, new { verb = new HttpMethodConstraint("POST") });
 
             // Live Command Line
             routes.MapHttpRouteDual("execute-command", "command", new { controller = "Command", action = "ExecuteCommand" }, new { verb = new HttpMethodConstraint("POST") });
@@ -755,7 +758,9 @@ namespace Kudu.Services.Web.App_Start
             List<string> folders = PathUtilityFactory.Instance.GetPathFolders(environment);
 
             string path = System.Environment.GetEnvironmentVariable("PATH");
-            string additionalPaths = String.Join(Path.PathSeparator.ToString(), folders);
+
+            // Ignore any folder that doesn't actually exist
+            string additionalPaths = String.Join(Path.PathSeparator.ToString(), folders.Where(dir => Directory.Exists(dir)));
 
             // Make sure we haven't already added them. This can happen if the Kudu appdomain restart (since it's still same process)
             if (!path.Contains(additionalPaths))
@@ -786,8 +791,7 @@ namespace Kudu.Services.Web.App_Start
             string repositoryPath = Path.Combine(siteRoot, settings == null ? Constants.RepositoryPath : settings.GetRepositoryPath());
             string binPath = HttpRuntime.BinDirectory;
             string requestId = httpContext?.Request.GetRequestId();
-            string siteRetrictedJwt = httpContext?.Request.GetSiteRetrictedJwt();
-            return new Core.Environment(root, EnvironmentHelper.NormalizeBinPath(binPath), repositoryPath, requestId, siteRetrictedJwt);
+            return new Core.Environment(root, EnvironmentHelper.NormalizeBinPath(binPath), repositoryPath, requestId);
         }
 
         private static void EnsureDotNetCoreEnvironmentVariable(IEnvironment environment)

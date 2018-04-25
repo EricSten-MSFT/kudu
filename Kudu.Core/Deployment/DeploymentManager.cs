@@ -156,6 +156,7 @@ namespace Kudu.Core.Deployment
             ChangeSet changeSet,
             string deployer,
             bool clean,
+            DeploymentInfoBase deploymentInfo = null,
             bool needFileUpdate = true,
             bool fullBuildByDefault = true)
         {
@@ -231,7 +232,7 @@ namespace Kudu.Core.Deployment
                     innerLogger = null;
 
                     // Perform the build deployment of this changeset
-                    await Build(changeSet, tracer, deployStep, repository, deploymentAnalytics, fullBuildByDefault);
+                    await Build(changeSet, tracer, deployStep, repository, deploymentInfo, deploymentAnalytics, fullBuildByDefault);
 
                     if (!OSDetector.IsOnWindows() && _settings.RestartAppContainerOnGitDeploy())
                     {
@@ -529,6 +530,7 @@ namespace Kudu.Core.Deployment
             ITracer tracer,
             IDisposable deployStep,
             IRepository repository,
+            DeploymentInfoBase deploymentInfo,
             DeploymentAnalytics deploymentAnalytics,
             bool fullBuildByDefault)
         {
@@ -622,10 +624,16 @@ namespace Kudu.Core.Deployment
                 {
                     NextManifestFilePath = GetDeploymentManifestPath(id),
                     PreviousManifestFilePath = GetActiveDeploymentManifestPath(),
+                    IgnoreManifest = deploymentInfo != null && deploymentInfo.CleanupTargetDirectory,
+                    // Ignoring the manifest will cause kudusync to delete sub-directories / files
+                    // in the destination directory that are not present in the source directory,
+                    // without checking the manifest to see if the file was copied over to the destination
+                    // during a previous kudusync operation. This effectively performs a clean deployment
+                    // from the source to the destination directory.
                     Tracer = tracer,
                     Logger = logger,
                     GlobalLogger = _globalLogger,
-                    OutputPath = GetOutputPath(_environment, perDeploymentSettings),
+                    OutputPath = GetOutputPath(deploymentInfo, _environment, perDeploymentSettings),
                     BuildTempPath = buildTempPath,
                     CommitId = id,
                     Message = changeSet.Message
@@ -653,11 +661,16 @@ namespace Kudu.Core.Deployment
                         await builder.Build(context);
                         builder.PostBuild(context);
 
-                        await PostDeploymentHelper.SyncFunctionsTriggers(_environment.RequestId, _environment.SiteRestrictedJwt, new PostDeploymentTraceListener(tracer, logger));
+                        await PostDeploymentHelper.SyncFunctionsTriggers(_environment.RequestId, new PostDeploymentTraceListener(tracer, logger), deploymentInfo?.SyncFunctionsTriggersPath);
 
-                        if (_settings.TouchWebConfigAfterDeployment())
+                        if (_settings.TouchWatchedFileAfterDeployment())
                         {
-                            TryTouchWebConfig(context);
+                            TryTouchWatchedFile(context, deploymentInfo);
+                        }
+
+                        if (_settings.RunFromLocalZip() && deploymentInfo is ZipDeploymentInfo)
+                        {
+                            await PostDeploymentHelper.UpdateSiteVersion(deploymentInfo as ZipDeploymentInfo, _environment, logger);
                         }
 
                         FinishDeployment(id, deployStep);
@@ -688,7 +701,7 @@ namespace Kudu.Core.Deployment
 
         private void PreDeployment(ITracer tracer)
         {
-            if (Environment.IsAzureEnvironment() 
+            if (Environment.IsAzureEnvironment()
                 && FileSystemHelpers.DirectoryExists(_environment.SSHKeyPath)
                 && OSDetector.IsOnWindows())
             {
@@ -697,7 +710,7 @@ namespace Kudu.Core.Deployment
 
                 if (!String.Equals(src, dst, StringComparison.OrdinalIgnoreCase))
                 {
-                    // copy %HOME%\.ssh to %USERPROFILE%\.ssh key to workaround 
+                    // copy %HOME%\.ssh to %USERPROFILE%\.ssh key to workaround
                     // npm with private ssh git dependency
                     using (tracer.Step("Copying SSH keys"))
                     {
@@ -736,11 +749,16 @@ namespace Kudu.Core.Deployment
             deploymentAnalytics.Error = ex.ToString();
         }
 
-        private static string GetOutputPath(IEnvironment environment, IDeploymentSettingsManager perDeploymentSettings)
+        private static string GetOutputPath(DeploymentInfoBase deploymentInfo, IEnvironment environment, IDeploymentSettingsManager perDeploymentSettings)
         {
             string targetPath = perDeploymentSettings.GetTargetPath();
 
-            if (!String.IsNullOrEmpty(targetPath))
+            if (String.IsNullOrWhiteSpace(targetPath))
+            {
+                targetPath = deploymentInfo?.TargetPath;
+            }
+
+            if (!String.IsNullOrWhiteSpace(targetPath))
             {
                 targetPath = targetPath.Trim('\\', '/');
                 return Path.GetFullPath(Path.Combine(environment.WebRootPath, targetPath));
@@ -822,15 +840,22 @@ namespace Kudu.Core.Deployment
             }
         }
 
-        private static void TryTouchWebConfig(DeploymentContext context)
+        // Touch watched file (web.config, web.xml, etc)
+        private static void TryTouchWatchedFile(DeploymentContext context, DeploymentInfoBase deploymentInfo)
         {
             try
             {
-                // Touch web.config
-                string webConfigPath = Path.Combine(context.OutputPath, "web.config");
-                if (File.Exists(webConfigPath))
+                string watchedFileRelativePath = deploymentInfo?.WatchedFilePath;
+                if (string.IsNullOrWhiteSpace(watchedFileRelativePath))
                 {
-                    File.SetLastWriteTimeUtc(webConfigPath, DateTime.UtcNow);
+                    watchedFileRelativePath = "web.config";
+                }
+
+                string watchedFileAbsolutePath = Path.Combine(context.OutputPath, watchedFileRelativePath);
+
+                if (File.Exists(watchedFileAbsolutePath))
+                {
+                    File.SetLastWriteTimeUtc(watchedFileAbsolutePath, DateTime.UtcNow);
                 }
             }
             catch (Exception ex)
@@ -906,7 +931,16 @@ namespace Kudu.Core.Deployment
                 return null;
             }
 
-            return GetDeploymentManifestPath(id);
+            string manifestPath = GetDeploymentManifestPath(id);
+
+            // If the manifest file doesn't exist, don't return it as it could confuse kudusync.
+            // This can happen if the deployment was created with just metadata but no actualy deployment took place.
+            if (!FileSystemHelpers.FileExists(manifestPath))
+            {
+                return null;
+            }
+
+            return manifestPath;
         }
 
         private string GetDeploymentManifestPath(string id)

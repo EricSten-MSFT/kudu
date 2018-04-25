@@ -158,7 +158,7 @@ namespace Kudu.Services.Deployment
 
                         try
                         {
-                            await _deploymentManager.DeployAsync(repository, changeSet, username, clean, needFileUpdate);
+                            await _deploymentManager.DeployAsync(repository, changeSet, username, clean, deploymentInfo: null, needFileUpdate: needFileUpdate);
                         }
                         catch (DeploymentFailedException ex)
                         {
@@ -183,7 +183,7 @@ namespace Kudu.Services.Deployment
                             IDeploymentStatusFile statusFile = _status.Open(changeSet.Id);
                             if (statusFile != null && statusFile.Status == DeployStatus.Success)
                             {
-                                await PostDeploymentHelper.PerformAutoSwap(_environment.RequestId, _environment.SiteRestrictedJwt, new PostDeploymentTraceListener(_tracer, _deploymentManager.GetLogger(changeSet.Id)));
+                                await PostDeploymentHelper.PerformAutoSwap(_environment.RequestId, new PostDeploymentTraceListener(_tracer, _deploymentManager.GetLogger(changeSet.Id)));
                             }
                         }
                     }

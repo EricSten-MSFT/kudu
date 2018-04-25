@@ -18,6 +18,8 @@ namespace Kudu.FunctionalTests
     [KuduXunitTestClass]
     public class ZipDeploymentTests
     {
+        public const string DefaultPushDeployer = "Push-Deployer";
+
         [Fact]
         public Task TestSimpleZipDeployment()
         {
@@ -75,7 +77,7 @@ namespace Kudu.FunctionalTests
                 do
                 {
                     result = await appManager.DeploymentManager.GetResultAsync("latest");
-                    Assert.Equal("Zip-Push", result.Deployer);
+                    Assert.Equal(DefaultPushDeployer, result.Deployer);
                     await Task.Delay(TimeSpan.FromSeconds(2));
                 } while (!new[] { DeployStatus.Failed, DeployStatus.Success }.Contains(result.Status));
 
@@ -118,7 +120,7 @@ namespace Kudu.FunctionalTests
                 do
                 {
                     result = await appManager.DeploymentManager.GetResultAsync("latest");
-                    Assert.Equal("Zip-Push", result.Deployer);
+                    Assert.Equal(DefaultPushDeployer, result.Deployer);
                     await Task.Delay(TimeSpan.FromSeconds(2));
                 } while (!new[] { DeployStatus.Failed, DeployStatus.Success }.Contains(result.Status));
 
@@ -145,7 +147,7 @@ namespace Kudu.FunctionalTests
                 do
                 {
                     result = await appManager.DeploymentManager.GetResultAsync("latest");
-                    Assert.Equal("Zip-Push", result.Deployer);
+                    Assert.Equal(DefaultPushDeployer, result.Deployer);
                     await Task.Delay(TimeSpan.FromSeconds(2));
                 } while (!new[] { DeployStatus.Failed, DeployStatus.Success }.Contains(result.Status));
 
@@ -276,6 +278,106 @@ namespace Kudu.FunctionalTests
             });
         }
 
+        [Fact]
+        public Task TestSimpleWarDeployment()
+        {
+            return ApplicationManager.RunAsync("TestSimpleWarDeployment", async appManager =>
+            {
+                var files = CreateRandomFilesForZip(10);
+                var response = await DeployWar(appManager, files, new ZipDeployMetadata());
+                response.EnsureSuccessStatusCode();
+                await AssertSuccessfulDeploymentByFilenames(appManager, files.Select(f => f.Filename).ToArray(), "webapps/ROOT");
+            });
+        }
+
+        [Fact]
+        public Task TestWarDeploymentUpdatesWebXmlTimestamp()
+        {
+            return ApplicationManager.RunAsync("TestWarDeploymentUpdatesWebXmlTimestamp", async appManager =>
+            {
+                var files = new[] { new FileForZip { Filename = "WEB-INF/web.xml" } };
+
+                // STEP 1: Deploy WAR and get web.xml timestamp
+
+                // Deploy WAR
+                var response = await DeployWar(appManager, files, new ZipDeployMetadata());
+                response.EnsureSuccessStatusCode();
+
+                // Query web.xml timestamp
+                var deployedFiles = appManager.VfsWebRootManager.ListAsync("webapps/ROOT/WEB-INF").Result.ToList();
+
+                // Basic validation that web.xml exists
+                Assert.Equal(1, deployedFiles.Count);
+                Assert.Equal("web.xml", deployedFiles[0].Name);
+
+                var creationTime = deployedFiles[0].CRTime;
+                var modifiedTime = deployedFiles[0].MTime;
+
+                // STEP 2: Get web.xml timestamp without deploying WAR again
+
+                // Query web.xml timestamp
+                deployedFiles = appManager.VfsWebRootManager.ListAsync("webapps/ROOT/WEB-INF").Result.ToList();
+
+                // Basic validation that web.xml exists
+                Assert.Equal(1, deployedFiles.Count);
+                Assert.Equal("web.xml", deployedFiles[0].Name);
+
+                // Check creation time and modification time haven't changed
+                Assert.Equal(creationTime, deployedFiles[0].CRTime);
+                Assert.Equal(modifiedTime, deployedFiles[0].MTime);
+
+                // STEP 3: Deploy WAR again and get web.xml timestamp
+
+                // Deploy WAR again
+                response = await DeployWar(appManager, files, new ZipDeployMetadata());
+                response.EnsureSuccessStatusCode();
+
+                // Query web.xml timestamp
+                deployedFiles = appManager.VfsWebRootManager.ListAsync("webapps/ROOT/WEB-INF").Result.ToList();
+
+                // Basic validation that web.xml exists
+                Assert.Equal(1, deployedFiles.Count);
+                Assert.Equal("web.xml", deployedFiles[0].Name);
+
+                // Check creation time hasn't changed, but modification time has been updated
+                Assert.Equal(creationTime, deployedFiles[0].CRTime);
+                Assert.NotEqual(modifiedTime, deployedFiles[0].MTime);
+            });
+        }
+
+        [Fact]
+        public Task TestSimpleWarDeploymentPerformsCleanDeployment()
+        {
+            return ApplicationManager.RunAsync("TestSimpleWarDeploymentPerformsCleanDeployment", async appManager =>
+            {
+                // STEP 1: create a file before doing a wardeploy. We expect wardeploy to remove this file
+                var fileName = "file-before-wardeployment-" + Guid.NewGuid().ToString("N");
+                appManager.VfsWebRootManager.WriteAllText("webapps/ROOT/" + fileName, "some content");
+                var deployedFiles = appManager.VfsWebRootManager.ListAsync("webapps/ROOT/").Result.ToList();
+                Assert.Equal(1, deployedFiles.Count);
+                Assert.Equal(fileName, deployedFiles[0].Name);
+
+                // STEP 2: Perform wardeploy and check files deployed by wardeploy are the only ones that exist now
+                // (in other words, check that the file created in step 1 is removed by wardeploy)
+                var files = CreateRandomFilesForZip(10);
+                var response = await DeployWar(appManager, files, new ZipDeployMetadata());
+                response.EnsureSuccessStatusCode();
+                await AssertSuccessfulDeploymentByFilenames(appManager, files.Select(f => f.Filename).ToArray(), "webapps/ROOT");
+            });
+        }
+
+        [Fact]
+        public Task TestSimpleWarDeploymentWithCustomAppName()
+        {
+            return ApplicationManager.RunAsync("TestSimpleWarDeploymentPerformsCleanDeployment", async appManager =>
+            {
+                var files = CreateRandomFilesForZip(10);
+                var response = await DeployWar(appManager, files, new ZipDeployMetadata(), "testappname");
+                response.EnsureSuccessStatusCode();
+                await AssertSuccessfulDeploymentByFilenames(appManager, files.Select(f => f.Filename).ToArray(), "webapps/testappname");
+            });
+        }
+
         private static async Task AssertSuccessfulDeploymentByContent(ApplicationManager appManager, FileForZip[] files)
         {
             TestTracer.Trace("Verifying files are deployed and deployment record created.");
@@ -283,7 +385,7 @@ namespace Kudu.FunctionalTests
             var deployment = await appManager.DeploymentManager.GetResultAsync("latest");
 
             Assert.Equal(DeployStatus.Success, deployment.Status);
-            Assert.Equal("Zip-Push", deployment.Deployer);
+            Assert.Equal(DefaultPushDeployer, deployment.Deployer);
 
             var entries = await appManager.VfsWebRootManager.ListAsync(null);
             var deployedFilenames = entries.Select(e => e.Name);
@@ -298,7 +400,7 @@ namespace Kudu.FunctionalTests
             }
         }
 
-        private static async Task AssertSuccessfulDeploymentByFilenames(ApplicationManager appManager, string[] filenames)
+        private static async Task AssertSuccessfulDeploymentByFilenames(ApplicationManager appManager, string[] filenames, string path = null)
         {
             TestTracer.Trace("Verifying files are deployed and deployment record created.");
 
@@ -306,7 +408,7 @@ namespace Kudu.FunctionalTests
 
             Assert.Equal(DeployStatus.Success, deployment.Status);
 
-            var entries = await appManager.VfsWebRootManager.ListAsync(null);
+            var entries = await appManager.VfsWebRootManager.ListAsync(path);
             var deployedFilenames = entries.Select(e => e.Name);
 
             var filenameSet = new HashSet<string>(filenames);
@@ -318,22 +420,35 @@ namespace Kudu.FunctionalTests
             FileForZip[] files,
             ZipDeployMetadata metadata)
         {
+            TestTracer.Trace("Push-deploying zip");
             using (var zipStream = CreateZipStream(files))
             {
-                return await DeployZip(appManager, zipStream, metadata);
+                return await appManager.ZipDeploymentManager.PushDeployFromStream(
+                    zipStream,
+                    metadata);
             }
         }
 
-        private static async Task<HttpResponseMessage> DeployZip(
+        private static async Task<HttpResponseMessage> DeployWar(
             ApplicationManager appManager,
-            Stream zipStream,
-            ZipDeployMetadata metadata)
+            FileForZip[] files,
+            ZipDeployMetadata metadata,
+            string appName = null)
         {
-            TestTracer.Trace("Push-deploying zip");
-            var response = await appManager.PushDeploymentManager.PushDeployFromStream(
-                zipStream,
-                metadata);
-            return response;
+            TestTracer.Trace("Push-deploying war");
+            using (var zipStream = CreateZipStream(files))
+            {
+                IList<KeyValuePair<string, string>> queryParams = null;
+                if (!string.IsNullOrWhiteSpace(appName))
+                {
+                    queryParams = new List<KeyValuePair<string, string>>(){ new KeyValuePair<string, string>( "name", appName ) };
+                }
+
+                return await appManager.WarDeploymentManager.PushDeployFromStream(
+                    zipStream,
+                    metadata,
+                    queryParams);
+            }
         }
 
         private static FileForZip[] CreateRandomFilesForZip(int numFiles)
