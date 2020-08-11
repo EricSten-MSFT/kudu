@@ -233,12 +233,6 @@ namespace Kudu.Core.Deployment
 
                     // Perform the build deployment of this changeset
                     await Build(changeSet, tracer, deployStep, repository, deploymentInfo, deploymentAnalytics, fullBuildByDefault);
-
-                    if (!OSDetector.IsOnWindows() && _settings.RestartAppContainerOnGitDeploy())
-                    {
-                        logger.Log(Resources.Log_TriggeringContainerRestart);
-                        LinuxContainerRestartTrigger.RequestContainerRestart(_environment, RestartTriggerReason);
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -264,6 +258,9 @@ namespace Kudu.Core.Deployment
                     }
                 }
 
+                // Remove leftover AppOffline file
+                PostDeploymentHelper.RemoveAppOfflineIfLeft(_environment, null, tracer);
+
                 // Reload status file with latest updates
                 statusFile = _status.Open(id);
                 if (statusFile != null)
@@ -275,6 +272,39 @@ namespace Kudu.Core.Deployment
                 {
                     throw new DeploymentFailedException(exception);
                 }
+
+                if (statusFile != null && statusFile.Status == DeployStatus.Success && _settings.RunFromLocalZip())
+                {
+                    var zipDeploymentInfo = deploymentInfo as ZipDeploymentInfo;
+                    if (zipDeploymentInfo != null)
+                    {
+                        await PostDeploymentHelper.UpdateSiteVersion(zipDeploymentInfo, _environment, tracer);
+                    }
+                }
+            }
+        }
+
+        public async Task RestartMainSiteIfNeeded(ITracer tracer, ILogger logger)
+        {
+            // If post-deployment restart is disabled, do nothing.
+            if (!_settings.RestartAppOnGitDeploy())
+            {
+                return;
+            }
+
+            if (_settings.RecylePreviewEnabled())
+            {
+                logger.Log("Triggering recycle (preview mode enabled).");
+                tracer.Trace("Triggering recycle (preview mode enabled).");
+
+                await PostDeploymentHelper.RestartMainSiteAsync(_environment.RequestId, new PostDeploymentTraceListener(tracer, logger));
+            }
+            else
+            {
+                logger.Log("Triggering recycle (preview mode disabled).");
+                tracer.Trace("Triggering recycle (preview mode disabled).");
+
+                DockerContainerRestartTrigger.RequestContainerRestart(_environment, RestartTriggerReason, tracer);
             }
         }
 
@@ -347,8 +377,11 @@ namespace Kudu.Core.Deployment
                 status.MarkFailed();
             }
 
-            // Cleaup old deployments
+            // Cleanup old deployments
             PurgeAndGetDeployments();
+
+            // Report deployment completion
+            DeploymentCompletedInfo.Persist(_environment.RequestId, status);
         }
 
         // since the expensive part (reading all files) is done,
@@ -453,13 +486,13 @@ namespace Kudu.Core.Deployment
             return toDelete;
         }
 
-        private static string GenerateTemporaryId(int lenght = 8)
+        private static string GenerateTemporaryId(int length = 8)
         {
             const string HexChars = "0123456789abcdfe";
 
             var strb = new StringBuilder();
             strb.Append(TemporaryDeploymentIdPrefix);
-            for (int i = 0; i < lenght; ++i)
+            for (int i = 0; i < length; ++i)
             {
                 strb.Append(HexChars[_random.Next(HexChars.Length)]);
             }
@@ -661,16 +694,13 @@ namespace Kudu.Core.Deployment
                         await builder.Build(context);
                         builder.PostBuild(context);
 
+                        await RestartMainSiteIfNeeded(tracer, logger);
+
                         await PostDeploymentHelper.SyncFunctionsTriggers(_environment.RequestId, new PostDeploymentTraceListener(tracer, logger), deploymentInfo?.SyncFunctionsTriggersPath);
 
-                        if (_settings.TouchWatchedFileAfterDeployment())
+                        if (!_settings.RunFromZip() && _settings.TouchWatchedFileAfterDeployment())
                         {
                             TryTouchWatchedFile(context, deploymentInfo);
-                        }
-
-                        if (_settings.RunFromLocalZip() && deploymentInfo is ZipDeploymentInfo)
-                        {
-                            await PostDeploymentHelper.UpdateSiteVersion(deploymentInfo as ZipDeploymentInfo, _environment, logger);
                         }
 
                         FinishDeployment(id, deployStep);
@@ -934,7 +964,7 @@ namespace Kudu.Core.Deployment
             string manifestPath = GetDeploymentManifestPath(id);
 
             // If the manifest file doesn't exist, don't return it as it could confuse kudusync.
-            // This can happen if the deployment was created with just metadata but no actualy deployment took place.
+            // This can happen if the deployment was created with just metadata but no actually deployment took place.
             if (!FileSystemHelpers.FileExists(manifestPath))
             {
                 return null;

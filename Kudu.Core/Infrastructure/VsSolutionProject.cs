@@ -44,6 +44,7 @@ namespace Kudu.Core.Infrastructure
         private IEnumerable<Guid> _projectTypeGuids;
         private string _projectName;
         private string _absolutePath;
+        private string _targetFramework;
 
         private bool _initialized;
 
@@ -146,7 +147,7 @@ namespace Kudu.Core.Infrastructure
             {
                 var aspNetConfigurations = _aspNetConfigurationsProperty.GetValue<Hashtable>(_projectInstance);
 
-                // Use the release configuraiton and debug if it isn't available
+                // Use the release configuration and debug if it isn't available
                 object configurationObject = aspNetConfigurations["Release"] ?? aspNetConfigurations["Debug"];
 
                 // REVIEW: Is there always a configuration object (i.e. can this ever be null?)
@@ -167,6 +168,7 @@ namespace Kudu.Core.Infrastructure
                 _isWap = VsHelper.IsWap(_projectTypeGuids);
                 _isExecutable = VsHelper.IsExecutableProject(_absolutePath);
                 _isFunctionApp = FunctionAppHelper.LooksLikeFunctionApp();
+                _targetFramework = VsHelper.GetTargetFramework(_absolutePath);
             }
             else
             {
@@ -175,6 +177,16 @@ namespace Kudu.Core.Infrastructure
 
             _initialized = true;
         }
+
+        public string TargetFramework
+        {
+            get
+            {
+                EnsureProperties();
+                return _targetFramework;
+            }
+        }
+
 
         // Microsoft.Build.Construction.SolutionProjectType
         private enum SolutionProjectType

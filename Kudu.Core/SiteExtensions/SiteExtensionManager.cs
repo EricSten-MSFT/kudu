@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel.Composition.Hosting;
 using System.Configuration;
@@ -8,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
@@ -22,7 +22,6 @@ using Kudu.Core.Helpers;
 using Kudu.Core.Infrastructure;
 using Kudu.Core.Settings;
 using Kudu.Core.Tracing;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NuGet.Client;
 using NuGet.Client.VisualStudio;
@@ -73,6 +72,13 @@ namespace Kudu.Core.SiteExtensions
             _analytics = analytics;
         }
 
+        // This is for mock testing only
+        public static string BinDirectory
+        {
+            get;
+            set;
+        }
+
         public async Task<IEnumerable<SiteExtensionInfo>> GetRemoteExtensions(string filter, bool allowPrereleaseVersions, string feedUrl)
         {
             ITracer tracer = _traceFactory.GetTracer();
@@ -105,7 +111,7 @@ namespace Kudu.Core.SiteExtensions
                     packages,
                     async (uiPackage) =>
                     {
-                        // this function is called in multiple threads simoutaneously
+                        // this function is called in multiple threads simultaneously
                         return await ConvertRemotePackageToSiteExtensionInfo(uiPackage, feedUrl, metadataResource);
                     });
 
@@ -211,9 +217,9 @@ namespace Kudu.Core.SiteExtensions
             return info;
         }
 
-        public Task<SiteExtensionInfo> InstallExtension(string id, string version, string feedUrl, SiteExtensionInfo.SiteExtensionType type, ITracer tracer, string installationArgs = null)
+        public Task<SiteExtensionInfo> InstallExtension(string id, SiteExtensionInfo requestInfo, ITracer tracer)
         {
-            var installationTask = InstallExtensionCore(id, version, feedUrl, type, tracer, installationArgs);
+            var installationTask = InstallExtensionCore(id, requestInfo, tracer);
 
 #pragma warning disable 4014
             // Track pending task
@@ -223,8 +229,12 @@ namespace Kudu.Core.SiteExtensions
             return installationTask;
         }
 
-        private async Task<SiteExtensionInfo> InstallExtensionCore(string id, string version, string feedUrl, SiteExtensionInfo.SiteExtensionType type, ITracer tracer, string installationArgs)
+        private async Task<SiteExtensionInfo> InstallExtensionCore(string id, SiteExtensionInfo requestInfo, ITracer tracer)
         {
+            var version = requestInfo.Version;
+            var feedUrl = requestInfo.FeedUrl;
+            var type = requestInfo.Type;
+            var installationArgs = requestInfo.InstallationArgs;
             try
             {
                 using (tracer.Step("Installing '{0}' version '{1}' from '{2}'", id, version, feedUrl))
@@ -277,9 +287,10 @@ namespace Kudu.Core.SiteExtensions
                     // package already installed, return package from local repo.
                     tracer.Trace("Package {0} with version {1} from {2} with installation arguments '{3}' already installed.", id, version, feedUrl, installationArgs);
                     info = await GetLocalExtension(id);
-                    alreadyInstalled = true;
+                    alreadyInstalled = info != null;
                 }
-                else
+
+                if (!alreadyInstalled)
                 {
                     JsonSettings siteExtensionSettings = GetSettingManager(id);
                     feedUrl = (string.IsNullOrEmpty(feedUrl) ? siteExtensionSettings.GetValue(_feedUrlSetting) : feedUrl);
@@ -452,7 +463,7 @@ namespace Kudu.Core.SiteExtensions
         {
             try
             {
-                EnsureInstallationEnviroment(installationDirectory, tracer);
+                EnsureInstallationEnvironment(installationDirectory, tracer);
 
                 string packageLocalFilePath = GetNuGetPackageFile(package.Identity.Id, package.Identity.Version.ToNormalizedString());
                 bool packageExisted = FileSystemHelpers.DirectoryExists(installationDirectory);
@@ -513,7 +524,7 @@ namespace Kudu.Core.SiteExtensions
                     }
                 }
 
-                // ignore below action if we install packge to wwwroot
+                // ignore below action if we install package to wwwroot
                 if (SiteExtensionInfo.SiteExtensionType.WebRoot != type)
                 {
                     using (tracer.Step("Check if applicationHost.xdt or scmApplicationHost.xdt file existed."))
@@ -554,11 +565,11 @@ namespace Kudu.Core.SiteExtensions
         }
 
         /// <summary>
-        /// <para>Check if there is damanged leftover data</para>
+        /// <para>Check if there is damaged leftover data</para>
         /// <para>If there is leftover data, will try to cleanup.</para>
         /// <para>If fail to cleanup, will move leftover data to Temp folder</para>
         /// </summary>
-        private static void EnsureInstallationEnviroment(string installationDir, ITracer tracer)
+        private static void EnsureInstallationEnvironment(string installationDir, ITracer tracer)
         {
             // folder is there but nupkg is gone, means previous uninstallation must encounter some error
             bool isInstalledPackageBroken = FileSystemHelpers.DirectoryExists(installationDir) && FileSystemHelpers.GetFiles(installationDir, "*.nupkg").Length == 0;
@@ -581,14 +592,14 @@ namespace Kudu.Core.SiteExtensions
 
                 FileSystemHelpers.EnsureDirectory(_toBeDeletedDirectoryPath);
                 DirectoryInfo dirInfo = new DirectoryInfo(installationDir);
-                string tmpFoder = Path.Combine(
+                string tmpFolder = Path.Combine(
                     _toBeDeletedDirectoryPath,
                     string.Format(CultureInfo.InvariantCulture, "{0}-{1}", dirInfo.Name, Guid.NewGuid().ToString("N").Substring(0, 8)));
 
-                using (tracer.Step("Failed to cleanup. Moving leftover data to {0}", tmpFoder))
+                using (tracer.Step("Failed to cleanup. Moving leftover data to {0}", tmpFolder))
                 {
                     // if failed, let exception bubble up to trigger bad request
-                    OperationManager.Attempt(() => FileSystemHelpers.MoveDirectory(installationDir, tmpFoder));
+                    OperationManager.Attempt(() => FileSystemHelpers.MoveDirectory(installationDir, tmpFolder));
                 }
             }
 
@@ -758,8 +769,8 @@ namespace Kudu.Core.SiteExtensions
             }
             else
             {
-                repos.Add(GetSourceRepository(DeploymentSettingsExtension.NuGetSiteExtensionFeedUrl));
-                repos.Add(GetSourceRepository(_settings.GetSiteExtensionRemoteUrl()));
+                string remoteUrl = _settings.GetSiteExtensionRemoteUrl(out _);
+                repos.Add(GetSourceRepository(remoteUrl));
             }
             return repos;
         }
@@ -980,7 +991,7 @@ namespace Kudu.Core.SiteExtensions
         /// </summary>
         /// <param name="feedEndpoint">V2 or V3 feed endpoint</param>
         /// <returns>SourceRepository object</returns>
-        private static SourceRepository GetSourceRepository(string feedEndpoint)
+        public static SourceRepository GetSourceRepository(string feedEndpoint)
         {
             NuGet.Configuration.PackageSource source = new NuGet.Configuration.PackageSource(feedEndpoint);
             return new SourceRepository(source, _providers.Value);
@@ -989,7 +1000,12 @@ namespace Kudu.Core.SiteExtensions
         private static IEnumerable<Lazy<INuGetResourceProvider, INuGetResourceProviderMetadata>> GetNugetProviders()
         {
             var aggregateCatalog = new AggregateCatalog();
-            var directoryCatalog = new DirectoryCatalog(HttpRuntime.BinDirectory, "NuGet.Client*.dll");
+            var path = BinDirectory;
+            if (string.IsNullOrEmpty(path))
+            {
+                path = HttpRuntime.BinDirectory;
+            }
+            var directoryCatalog = new DirectoryCatalog(path, "NuGet.Client*.dll");
             aggregateCatalog.Catalogs.Add(directoryCatalog);
             var container = new CompositionContainer(aggregateCatalog);
             return container.GetExports<INuGetResourceProvider, INuGetResourceProviderMetadata>();

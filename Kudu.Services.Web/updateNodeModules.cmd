@@ -10,7 +10,7 @@ set counter=0
 set /a counter+=1
 echo Attempt %counter% out of %attempts%
 
-cmd /c npm install https://github.com/projectkudu/KuduScript/tarball/da1c8ca50f506d8448eb95178af4780cee2da5ed
+cmd /c npm install https://github.com/projectkudu/KuduScript/tarball/aadbe2bd33543483dd9659d35fc591a992e7aa6f
 IF %ERRORLEVEL% NEQ 0 goto error
 
 goto end
@@ -21,7 +21,7 @@ goto retry
 
 :lastError
 popd
-echo An error has occured during npm install.
+echo An error has occurred during npm install.
 exit /b 1
 
 :end

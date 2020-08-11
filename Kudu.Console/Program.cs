@@ -13,7 +13,6 @@ using Kudu.Contracts.Tracing;
 using Kudu.Core;
 using Kudu.Core.Deployment;
 using Kudu.Core.Deployment.Generator;
-using Kudu.Core.Functions;
 using Kudu.Core.Helpers;
 using Kudu.Core.Hooks;
 using Kudu.Core.Infrastructure;
@@ -49,7 +48,7 @@ namespace Kudu.Console
                 return 1;
             }
 
-            // The post receive hook launches the exe from sh and intereprets newline differently.
+            // The post receive hook launches the exe from sh and interprets newline differently.
             // This fixes very wacky issues with how the output shows up in the console on push
             System.Console.Error.NewLine = "\n";
             System.Console.Out.NewLine = "\n";
@@ -58,6 +57,9 @@ namespace Kudu.Console
             string wapTargets = args[1];
             string deployer = args.Length == 2 ? null : args[2];
             string requestId = System.Environment.GetEnvironmentVariable(Constants.RequestIdHeader);
+
+            // signify the deployment is done by git push
+            System.Environment.SetEnvironmentVariable(Constants.ScmDeploymentKind, "GitPush");
 
             IEnvironment env = GetEnvironment(appRoot, requestId);
             ISettings settings = new XmlSettings.Settings(GetSettingsPath(env));

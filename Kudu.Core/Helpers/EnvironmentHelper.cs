@@ -23,5 +23,19 @@ namespace Kudu.Core.Helpers
 
             return binPath;
         }
+
+        // Is this a Windows Containers site?
+        public static bool IsWindowsContainers()
+        {
+            string isolation = System.Environment.GetEnvironmentVariable("WEBSITE_ISOLATION");
+            return isolation == "hyperv" || isolation == "process";
+        }
+
+        public static bool IsLCOW()
+        {
+            return
+                System.Environment.GetEnvironmentVariable("WEBSITE_ISOLATION") == "hyperv" &&
+                System.Environment.GetEnvironmentVariable("WEBSITE_OS") == "linux";
+        }
     }
 }

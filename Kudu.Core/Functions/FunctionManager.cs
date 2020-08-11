@@ -127,10 +127,19 @@ namespace Kudu.Core.Functions
         private async Task<T> GetKeyObjectFromFile<T>(string name, IKeyJsonOps<T> keyOp)
         {
             var secretStorageType = System.Environment.GetEnvironmentVariable(Constants.AzureWebJobsSecretStorageType);
-            if (!string.IsNullOrEmpty(secretStorageType) &&
-                secretStorageType.Equals("Blob", StringComparison.OrdinalIgnoreCase))
+
+            // Assume the default version to not be one
+            var isVersionOne = !string.IsNullOrEmpty(FunctionSiteExtensionVersion) && (FunctionSiteExtensionVersion.StartsWith("1.0") || FunctionSiteExtensionVersion.Equals("~1"));
+
+            // If it is version one (default is Files) and the secret storage type not Files (not default or set manually), throw an error.
+            // Or if it's not version one (default is Blob), and the secret storage is not Files (manually set), throw an error.
+            var isStorageFiles = isVersionOne
+                ? string.IsNullOrEmpty(secretStorageType) || !secretStorageType.Equals("Blob", StringComparison.OrdinalIgnoreCase)
+                : !string.IsNullOrEmpty(secretStorageType) && secretStorageType.Equals("Files", StringComparison.OrdinalIgnoreCase);
+            if (!isStorageFiles)
             {
-                throw new InvalidOperationException("Runtime keys are stored on blob storage. This API doesn't support this configuration.");
+                throw new InvalidOperationException($"Runtime keys are stored on blob storage. This API doesn't support this configuration. " +
+                    $"Please change Environment variable {Constants.AzureWebJobsSecretStorageType} value to 'Files'. For more info, visit https://aka.ms/funcsecrets");
             }
 
             string keyPath = GetFunctionSecretsFilePath(name);
@@ -277,12 +286,13 @@ namespace Kudu.Core.Functions
         {
             var functionConfig = JObject.Parse(configContent);
             var functionPath = GetFuncPathAndCheckExistence(functionName);
+            string functionPrimaryScriptFile = DeterminePrimaryScriptFile((string)functionConfig["scriptFile"], functionPath);
 
             return new FunctionEnvelope
             {
                 Name = functionName,
                 ScriptRootPathHref = FilePathToVfsUri(functionPath, isDirectory: true),
-                ScriptHref = FilePathToVfsUri(DeterminePrimaryScriptFile(functionConfig, functionPath)),
+                ScriptHref = string.IsNullOrEmpty(functionPrimaryScriptFile) ? null : FilePathToVfsUri(functionPrimaryScriptFile),
                 ConfigHref = FilePathToVfsUri(GetFunctionConfigPath(functionName)),
                 SecretsFileHref = FilePathToVfsUri(GetFunctionSecretsFilePath(functionName)),
                 Href = GetFunctionHref(functionName),
@@ -299,19 +309,17 @@ namespace Kudu.Core.Functions
         }
 
         // Logic for this function is copied from here:
-        // https://github.com/Azure/azure-webjobs-sdk-script/blob/dev/src/WebJobs.Script/Host/ScriptHost.cs
+        // https://github.com/Azure/azure-functions-host/blob/dev/src/WebJobs.Script/Host/FunctionMetadataProvider.cs
         // These two implementations must stay in sync!
 
         /// <summary>
-        /// Determines which script should be considered the "primary" entry point script.
+        /// Determines which script should be considered the "primary" entry point script. Returns null if Primary script file cannot be determined
         /// </summary>
-        /// <exception cref="ConfigurationErrorsException">Thrown if the function metadata points to an invalid script file, or no script files are present.</exception>
-        internal string DeterminePrimaryScriptFile(JObject functionConfig, string scriptDirectory)
+        internal string DeterminePrimaryScriptFile(string scriptFile, string scriptDirectory)
         {
             // First see if there is an explicit primary file indicated
             // in config. If so use that.
             string functionPrimary = null;
-            string scriptFile = (string)functionConfig["scriptFile"];
 
             if (!string.IsNullOrEmpty(scriptFile))
             {
@@ -326,12 +334,12 @@ namespace Kudu.Core.Functions
             else
             {
                 string[] functionFiles = FileSystemHelpers.GetFiles(scriptDirectory, "*.*", SearchOption.TopDirectoryOnly)
-                    .Where(p => !String.Equals(Path.GetFileName(p), "function.json", StringComparison.OrdinalIgnoreCase))
+                    .Where(p => !String.Equals(Path.GetFileName(p), Constants.FunctionsConfigFile, StringComparison.OrdinalIgnoreCase))
                     .ToArray();
 
                 if (functionFiles.Length == 0)
                 {
-                    TraceAndThrowError(new ConfigurationErrorsException("No function script files present."));
+                    return null;
                 }
 
                 if (functionFiles.Length == 1)
@@ -349,12 +357,11 @@ namespace Kudu.Core.Functions
                 }
             }
 
+            // Primary script file is not required for HttpWorker or any custom language worker
             if (string.IsNullOrEmpty(functionPrimary))
             {
-                TraceAndThrowError(new ConfigurationErrorsException("Unable to determine the primary function script. Try renaming your entry point script to 'run' (or 'index' in the case of Node), " +
-                    "or alternatively you can specify the name of the entry point script explicitly by adding a 'scriptFile' property to your function metadata."));
+                return null;
             }
-
             return Path.GetFullPath(functionPrimary);
         }
 
@@ -417,8 +424,40 @@ namespace Kudu.Core.Functions
                 }
             }
 
-            return await FileSystemHelpers.ReadAllTextFromFileAsync(testDataFilePath);
+            var fileContentString = await FileSystemHelpers.ReadAllTextFromFileAsync(testDataFilePath);
+            // if it contains the following json property, need to remove them from the file
+            // "code": {
+            //    "name": "code",
+            //    "value": "gibberishxyz..."
+            // }
+            JObject testDataToAdjust = null;
+            if (fileContentString.Contains("\"code\":"))
+            {
+                try
+                {
+                    var testData = JObject.Parse(fileContentString);
+                    var codeProperty = testData["code"];
+                    if ("code".Equals((string)codeProperty["name"], StringComparison.OrdinalIgnoreCase) && (string)codeProperty["value"] != null)
+                    {
+                        testDataToAdjust = testData;
+                    }
+                }
+                catch (Exception)
+                {
+                    // failed to retrieve code property from fileContentString, NOOP
+                }
+            }
 
+            if (testDataToAdjust != null)
+            {
+                // TODO logging, since we are touching user data
+                testDataToAdjust.Property("code").Remove();
+                // update the fileContentString
+                fileContentString = testDataToAdjust.ToString(Formatting.None);
+                await FileSystemHelpers.WriteAllTextToFileAsync(testDataFilePath, fileContentString);
+            }
+
+            return fileContentString;
         }
 
         private string GetFunctionTestDataFilePath(string functionName)

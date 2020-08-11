@@ -376,11 +376,33 @@ namespace Kudu.FunctionalTests
     }
 
     [KuduXunitTestClass]
-    public class AspNetCore2VS17WithLibTests : GitDeploymentTests
+    public class ChakraMsieTests : GitDeploymentTests
     {
         [Fact]
         [KuduXunitTest(PrivateOnly = true)]
-        public void PushAndDeployAspNetCore2VS17WithLib()
+        public void PushAndDeployChakraMsieTest()
+        {
+            PushAndDeployApps("ChakraMsieTest", "master", "170 - 2 = 168", HttpStatusCode.OK, "Deployment successful");
+        }
+    }
+
+    [KuduXunitTestClass]
+    public class AspNetCore21VS17WithLibTests : GitDeploymentTests
+    {
+        [Fact]
+        [KuduXunitTest(PrivateOnly = true)]
+        public void PushAndDeployAspNetCore21VS17WithLib()
+        {
+            PushAndDeployApps("AspNetCore2.1.0VS17WithLib", "master", "DotNetCore210", HttpStatusCode.OK, "Deployment successful");
+        }
+    }
+
+    [KuduXunitTestClass]
+    public class AspNetCore20VS17WithLibTests : GitDeploymentTests
+    {
+        [Fact]
+        [KuduXunitTest(PrivateOnly = true)]
+        public void PushAndDeployAspNetCore20VS17WithLib()
         {
             PushAndDeployApps("AspNetCore2.0.0VS17WithLib", "master", "DotNetCore200", HttpStatusCode.OK, "Deployment successful");
         }
@@ -438,6 +460,17 @@ namespace Kudu.FunctionalTests
         public void PushAndDeployAspNetCoreRC4WebApiVsSln()
         {
             PushAndDeployApps("AspNetCoreRC4WebApiVsSln", "master", "[\"classlibrary\",\"netstandard\"]", HttpStatusCode.OK, "Deployment successful", resourcePath: "/api/values");
+        }
+    }
+
+    [KuduXunitTestClass]
+    public class AspNetCore21WebApiCliTests : GitDeploymentTests
+    {
+        [Fact]
+        [KuduXunitTest(PrivateOnly = true)]
+        public void PushAndDeployAspNetCore21WebApiCli()
+        {
+            PushAndDeployApps("AspNetCore2.1.0WebApiCli", "master", "[\"value1\",\"value2\"]", HttpStatusCode.OK, "Deployment successful", resourcePath: "/api/values");
         }
     }
 

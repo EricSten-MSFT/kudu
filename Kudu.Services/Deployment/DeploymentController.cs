@@ -433,7 +433,14 @@ namespace Kudu.Services.Deployment
                 if (IsLatestPendingDeployment(ref id, out pending))
                 {
                     var response = Request.CreateResponse(HttpStatusCode.Accepted, ArmUtils.AddEnvelopeOnArmRequest(pending, Request));
-                    response.Headers.Location = Request.RequestUri;
+                    if (ArmUtils.IsArmRequest(Request) && Request.Headers.Referrer != null && Request.Headers.Referrer.AbsolutePath.EndsWith(Constants.LatestDeployment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        response.Headers.Location = Request.Headers.Referrer;
+                    }
+                    else
+                    {
+                        response.Headers.Location = Request.RequestUri;
+                    }
                     return response;
                 }
 
@@ -451,6 +458,27 @@ namespace Kudu.Services.Deployment
                 result.Url = baseUri;
                 result.LogUrl = UriHelper.MakeRelative(baseUri, "log");
 
+                if (ArmUtils.IsArmRequest(Request))
+                {
+                    switch (result.Status)
+                    {
+                        case DeployStatus.Building:
+                        case DeployStatus.Deploying:
+                        case DeployStatus.Pending:
+                            result.ProvisioningState = "InProgress";
+                            HttpResponseMessage responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest(result, Request));
+                            responseMessage.Headers.Location = Request.RequestUri;
+                            return responseMessage;
+                        case DeployStatus.Failed:
+                            result.ProvisioningState = "Failed";
+                            break;
+                        case DeployStatus.Success:
+                            result.ProvisioningState = "Succeeded";
+                            break;
+                        default:
+                            return Request.CreateResponse(HttpStatusCode.BadRequest, ArmUtils.AddEnvelopeOnArmRequest(result, Request));
+                    }
+                }
                 return Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest(result, Request));
             }
         }

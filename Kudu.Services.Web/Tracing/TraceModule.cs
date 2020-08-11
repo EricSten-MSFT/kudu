@@ -42,6 +42,13 @@ namespace Kudu.Services.Web.Tracing
             new Regex(@"^/api/(processes|webjobs|triggeredwebjobs|continuouswebjobs)((/|$)([^/]*|$)){0,1}(/|$)$", RegexOptions.IgnoreCase),
         };
 
+        // list of paths returning potentially sensitive data
+        private static readonly HashSet<string> DisallowedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "/api/functions/admin/masterkey",
+            "/api/functions/admin/token"
+        };
+
         public static TimeSpan UpTime
         {
             get { return DateTime.UtcNow - _startDateTime; }
@@ -70,10 +77,11 @@ namespace Kudu.Services.Web.Tracing
 
             // HACK: This is abusing the trace module
             // Disallow GET requests from CSM extensions bridge
-            // Except if owner or coadmin (aka legacy or non-rbac) authorization
+            // Except if owner or coadmin (aka legacy or non-rbac) or x-ms-client-rolebased-contributor (by FE) authorization
             if (!String.IsNullOrEmpty(httpRequest.Headers["X-MS-VIA-EXTENSIONS-ROUTE"]) &&
                 httpRequest.HttpMethod.Equals(HttpMethod.Get.Method, StringComparison.OrdinalIgnoreCase) &&
-                !String.Equals(httpRequest.Headers["X-MS-CLIENT-AUTHORIZATION-SOURCE"], "legacy", StringComparison.OrdinalIgnoreCase) &&
+                !String.Equals(httpRequest.Headers[Constants.ClientAuthorizationSourceHeader], "legacy", StringComparison.OrdinalIgnoreCase) &&
+                httpRequest.Headers[Constants.RoleBasedContributorHeader] != "1" &&
                 !IsRbacWhiteListPaths(httpRequest.Url.AbsolutePath))
             {
                 httpContext.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
@@ -152,7 +160,7 @@ namespace Kudu.Services.Web.Tracing
 
         public static bool IsRbacWhiteListPaths(string path)
         {
-            return _rbacWhiteListPaths.Any(r => r.IsMatch(path));
+            return !DisallowedPaths.Any(path.Contains) && _rbacWhiteListPaths.Any(r => r.IsMatch(path));
         }
 
         private static void OnEndRequest(object sender, EventArgs e)
@@ -331,7 +339,7 @@ namespace Kudu.Services.Web.Tracing
                     var requestId = (string)httpContext.Items[Constants.RequestIdHeader];
                     KuduEventSource.Log.GenericEvent(
                         ServerConfiguration.GetApplicationName(),
-                        string.Format("StartupRequest pid:{0}, domain:{1}", Process.GetCurrentProcess().Id, AppDomain.CurrentDomain.Id),
+                        string.Format("StartupRequest pid:{0}, domain:{1}, UseSiteExtensionV1:{2}", Process.GetCurrentProcess().Id, AppDomain.CurrentDomain.Id, DeploymentSettingsExtension.UseSiteExtensionV1.Value),
                         requestId,
                         Environment.GetEnvironmentVariable(SettingsKeys.ScmType),
                         Environment.GetEnvironmentVariable(SettingsKeys.WebSiteSku),
@@ -389,6 +397,7 @@ namespace Kudu.Services.Web.Tracing
                 if (!string.Equals("AlwaysOn", request.UserAgent, StringComparison.OrdinalIgnoreCase))
                 {
                     System.Environment.SetEnvironmentVariable(Constants.HttpHost, request.Url.Host);
+                    System.Environment.SetEnvironmentVariable(Constants.HttpAuthority, request.Url.Authority);
                 }
             }
             catch

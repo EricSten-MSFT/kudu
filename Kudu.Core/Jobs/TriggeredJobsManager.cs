@@ -56,7 +56,7 @@ namespace Kudu.Core.Jobs
                     if (isLatest)
                     {
                         // The history state is determined by the most recent invocation,
-                        // as previous ones are immutable (beind historical records).
+                        // as previous ones are immutable (being historical records).
                         currentETag = CalculateETag(triggeredJobRun);
                         if (currentETag == etag)
                         {
@@ -156,7 +156,15 @@ namespace Kudu.Core.Jobs
                 return null;
             }
 
-            return jobHistoryDirectory.GetDirectories("*", SearchOption.TopDirectoryOnly);
+            try
+            {
+                return jobHistoryDirectory.GetDirectories("*", SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex)
+            {
+                Analytics.UnexpectedException(ex);
+                return null;
+            }
         }
 
         private TriggeredJobRun BuildJobRun(DirectoryInfoBase jobRunDirectory, string jobName, bool isLatest)

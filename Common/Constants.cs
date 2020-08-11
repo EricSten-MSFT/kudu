@@ -63,11 +63,11 @@ namespace Kudu
 
         public const string LatestDeployment = "latest";
 
-        private static readonly TimeSpan _maxAllowedExectionTime = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan _maxAllowedExecutionTime = TimeSpan.FromMinutes(30);
 
         public static TimeSpan MaxAllowedExecutionTime
         {
-            get { return _maxAllowedExectionTime; }
+            get { return _maxAllowedExecutionTime; }
         }
 
         public const string ApplicationHostXdtFileName = "applicationHost.xdt";
@@ -77,12 +77,15 @@ namespace Kudu
         public const string RequestIdHeader = "x-ms-request-id";
         public const string ClientRequestIdHeader = "x-ms-client-request-id";
         public const string RequestDateTimeUtc = "RequestDateTimeUtc";
+        public const string ScmDeploymentKind = "ScmDeploymentKind";
 
         public const string SiteOperationHeaderKey = "X-MS-SITE-OPERATION";
         public const string SiteOperationRestart = "restart";
 
         public const string LogicAppJson = "logicapp.json";
         public const string LogicAppUrlKey = "LOGICAPP_URL";
+
+        public const string RestartApiPath = "/api/app/restart";
 
         public const string SiteExtensionProvisioningStateCreated = "Created";
         public const string SiteExtensionProvisioningStateAccepted = "Accepted";
@@ -101,9 +104,12 @@ namespace Kudu
         //Setting for VC++ for node builds
         public const string VCVersion = "2015";
 
+        public const string RoleBasedContributorHeader = "X-MS-CLIENT-ROLEBASED-CONTRIBUTOR";
+        public const string ClientAuthorizationSourceHeader = "X-MS-CLIENT-AUTHORIZATION-SOURCE";
         public const string SiteRestrictedToken = "x-ms-site-restricted-token";
         public const string SiteAuthEncryptionKey = "WEBSITE_AUTH_ENCRYPTION_KEY";
         public const string HttpHost = "HTTP_HOST";
+        public const string HttpAuthority = "HTTP_AUTHORITY";
         public const string WebSiteSwapSlotName = "WEBSITE_SWAP_SLOTNAME";
 
         public const string Function = "function";
@@ -117,13 +123,18 @@ namespace Kudu
         public const string FunctionKeyNewFormat = "~0.7";
         public const string FunctionRunTimeVersion = "FUNCTIONS_EXTENSION_VERSION";
         public const string WebSiteSku = "WEBSITE_SKU";
+        public const string WebSiteElasticScaleEnabled = "WEBSITE_ELASTIC_SCALING_ENABLED";
         public const string DynamicSku = "Dynamic";
+        public const string ElasticScaleEnabled = "1";
         public const string AzureWebJobsSecretStorageType = "AzureWebJobsSecretStorageType";
         public const string HubName = "HubName";
         public const string DurableTaskStorageConnection = "connection";
         public const string DurableTaskStorageConnectionName = "azureStorageConnectionStringName";
         public const string DurableTask = "durableTask";
+        public const string Extensions = "extensions";
         public const string SitePackages = "SitePackages";
-        public const string SiteVersionTxt = "siteversion.txt";
+        public const string PackageNameTxt = "packagename.txt";
+        public const string AppOfflineFileName = "app_offline.htm";
+        public const string AppOfflineKuduContent = "Created by kudu";
     }
 }

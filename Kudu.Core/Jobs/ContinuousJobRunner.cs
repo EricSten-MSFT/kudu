@@ -27,6 +27,7 @@ namespace Kudu.Core.Jobs
         private readonly IAnalytics _analytics;
         private bool _alwaysOnWarningLogged;
         private bool? _isSingleton;
+        private bool _isUsingSdk;
 
         public ContinuousJobRunner(ContinuousJob continuousJob, string basePath, IEnvironment environment, IDeploymentSettingsManager settings, ITraceFactory traceFactory, IAnalytics analytics)
             : base(continuousJob.Name, Constants.ContinuousPath, basePath, environment, settings, traceFactory, analytics)
@@ -34,10 +35,21 @@ namespace Kudu.Core.Jobs
             _analytics = analytics;
             _continuousJobLogger = new ContinuousJobLogger(continuousJob.Name, Environment, TraceFactory);
             _continuousJobLogger.RolledLogFile += OnLogFileRolled;
-
+            _isUsingSdk = continuousJob.UsingSdk;
             _disableFilePath = Path.Combine(continuousJob.JobBinariesRootPath, "disable.job");
 
             _singletonLock = new LockFile(Path.Combine(JobDataPath, "singleton.job.lock"), TraceFactory, ensureLock: true);
+        }
+
+        public void ResetLockedStatusFile()
+        {
+            _continuousJobLogger.ResetLockedStatusFile();
+        }
+
+        public string GetJobType()
+        {
+            // continuous or continuous/SDK
+            return _isUsingSdk ? $"{Constants.ContinuousPath}/SDK" : Constants.ContinuousPath;
         }
 
         private void UpdateStatusIfChanged(ContinuousJobStatus continuousJobStatus)
@@ -132,7 +144,7 @@ namespace Kudu.Core.Jobs
                     catch (ThreadAbortException ex)
                     {
                         // by nature, ThreadAbortException will be rethrown at the end of this catch block and
-                        // this bool may not be neccessary since while loop will be exited anyway.  we added
+                        // this bool may not be necessary since while loop will be exited anyway.  we added
                         // it to be explicit.
                         threadAborted = true;
 
@@ -263,6 +275,10 @@ namespace Kudu.Core.Jobs
                 if (!_continuousJobThread.Join(JobSettings.GetStoppingWaitTime(DefaultContinuousJobStoppingWaitTimeInSeconds)))
                 {
                     _continuousJobThread.KuduAbort(String.Format("Stopping {0} {1} job", JobName, Constants.ContinuousPath));
+
+                    // to avoid overlapping new and old thread, we will wait for aborting thread to 
+                    // actually exit since it may take a few seconds after Thread.Abort is called.
+                    _continuousJobThread.Join(TimeSpan.FromMinutes(1));
                 }
 
                 _continuousJobThread = null;
@@ -307,7 +323,7 @@ namespace Kudu.Core.Jobs
         private void LogInformation(string format, params object[] args)
         {
             var message = string.Format(format, args);
-            _analytics.JobEvent(JobName, message, Constants.ContinuousPath, string.Empty);
+            _analytics.JobEvent(JobName, message, GetJobType(), string.Empty);
             _continuousJobLogger.LogInformation(message);
         }
 
@@ -345,7 +361,7 @@ namespace Kudu.Core.Jobs
             {
                 if (_continuousJobThread != null)
                 {
-                    _continuousJobThread.KuduAbort(String.Format("Dispoing {0} {1} job", JobName, Constants.ContinuousPath));
+                    _continuousJobThread.KuduAbort(String.Format("Dispoing {0} {1} job", JobName, GetJobType()));
                     _continuousJobThread = null;
                 }
 

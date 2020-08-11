@@ -13,10 +13,12 @@
         public const string TraceLevel = "SCM_TRACE_LEVEL";
         public const string CommandIdleTimeout = "SCM_COMMAND_IDLE_TIMEOUT";
         public const string LogStreamTimeout = "SCM_LOGSTREAM_TIMEOUT";
+        public const string HttpClientTimeout = "SCM_HTTPCLIENT_TIMEOUT";
         public const string GitUsername = "SCM_GIT_USERNAME";
         public const string GitEmail = "SCM_GIT_EMAIL";
         public const string ScmType = "ScmType";
         public const string UseShallowClone = "SCM_USE_SHALLOW_CLONE";
+        public const string UseSiteExtensionV1 = "SCM_USE_SITEEXTENSION_V1";
         public const string Command = "COMMAND";
         public const string Project = "PROJECT";
         public const string WorkerCommand = "WORKER_COMMAND";
@@ -41,9 +43,24 @@
         public const string TouchWebConfigAfterDeployment = "SCM_TOUCH_WEBCONFIG_AFTER_DEPLOYMENT";
         public const string MaxRandomDelayInSec = "SCM_MAX_RANDOM_START_DELAY";
         public const string DockerCiEnabled = "DOCKER_ENABLE_CI";
-        public const string LinuxRestartAppContainerAfterDeployment = "SCM_RESTART_APP_CONTAINER_AFTER_DEPLOYMENT";
+
+        // This app-setting works for all kinds of apps, including classic Windows apps (not just container-based apps).
+        // To disable its effect on classic Windows apps, set WEBSITE_RECYCLE_PREVIEW_ENABLED=0.
+        public const string RestartAppAfterDeployment = "SCM_RESTART_APP_CONTAINER_AFTER_DEPLOYMENT"; 
+
         public const string DoBuildDuringDeployment = "SCM_DO_BUILD_DURING_DEPLOYMENT";
-        public const string RunFromZipOld = "WEBSITE_USE_ZIP";  // Old name, will eventually go away
-        public const string RunFromZip = "WEBSITE_RUN_FROM_ZIP";
+        public const string RunFromZipOld = "WEBSITE_RUN_FROM_ZIP";  // Old name, will eventually go away
+        public const string RunFromZip = "WEBSITE_RUN_FROM_PACKAGE";
+
+        // Temporary flag intended only for testing purposes. Will not be supported for too long.
+        public const string RecyclePreviewEnabled = "WEBSITE_RECYCLE_PREVIEW_ENABLED";
+
+        public const string MaxZipPackageCount = "SCM_MAX_ZIP_PACKAGE_COUNT";
+        public const string ZipDeployDoNotPreserveFileTime = "SCM_ZIPDEPLOY_DONOT_PRESERVE_FILETIME";
+
+        public const string UseMSBuild16 = "SCM_USE_MSBUILD_16";
+        public const string UseMSBuild1607 = "SCM_USE_MSBUILD_1607";
+
+        public const string ILBVip = "SCM_ILB_VIP";
     }
 }

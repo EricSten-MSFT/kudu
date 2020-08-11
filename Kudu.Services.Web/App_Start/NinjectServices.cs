@@ -148,6 +148,9 @@ namespace Kudu.Services.Web.App_Start
 
             EnsureDotNetCoreEnvironmentVariable(environment);
 
+            // fix up invalid d:\home\site\deployments\settings.xml
+            EnsureValidDeploymentXmlSettings(environment);
+
             // Add various folders that never change to the process path. All child processes will inherit
             PrependFoldersToPath(environment);
 
@@ -277,6 +280,8 @@ namespace Kudu.Services.Web.App_Start
 
             OperationManager.SafeExecute(continuousJobManager.CleanupDeletedJobs);
 
+            PostDeploymentHelper.RemoveAppOfflineIfLeft(environment, _deploymentLock, GetTracer(kernel));
+
             kernel.Bind<IContinuousJobsManager>().ToConstant(continuousJobManager)
                                  .InTransientScope();
 
@@ -325,7 +330,9 @@ namespace Kudu.Services.Web.App_Start
             kernel.Bind<IServiceHookHandler>().To<OneDriveHandler>().InRequestScope();
 
             // SiteExtensions
-            kernel.Bind<ISiteExtensionManager>().To<SiteExtensionManager>().InRequestScope();
+            kernel.Bind<SiteExtensionManager>().To<SiteExtensionManager>().InRequestScope();
+            kernel.Bind<SiteExtensionManagerV2>().To<SiteExtensionManagerV2>().InRequestScope();
+            kernel.Bind<ISiteExtensionManager>().ToMethod(context => GetSiteExtensionManager(context.Kernel)).InRequestScope();
 
             // Functions
             kernel.Bind<IFunctionManager>().To<FunctionManager>().InRequestScope();
@@ -334,12 +341,8 @@ namespace Kudu.Services.Web.App_Start
             kernel.Bind<ICommandExecutor>().To<CommandExecutor>().InRequestScope();
 
             MigrateSite(environment, noContextDeploymentsSettingsManager);
-            RemoveOldTracePath(environment);
-            RemoveTempFileFromUserDrive(environment);
 
-            // Temporary fix for https://github.com/npm/npm/issues/5905
-            EnsureNpmGlobalDirectory();
-            EnsureUserProfileDirectory();
+            CleanupOrEnsureDirectories(environment);
 
             // Skip SSL Certificate Validate
             if (Kudu.Core.Environment.SkipSslValidation)
@@ -367,6 +370,16 @@ namespace Kudu.Services.Web.App_Start
                     kernel.Get<IAnalytics>(),
                     kernel.Get<ITraceFactory>()));
             GlobalConfiguration.Configuration.Filters.Add(new EnsureRequestIdHandlerAttribute());
+        }
+
+        private static void CleanupOrEnsureDirectories(IEnvironment environment)
+        {
+            RemoveOldTracePath(environment);
+            RemoveTempFileFromUserDrive(environment);
+
+            // Temporary fix for https://github.com/npm/npm/issues/5905
+            EnsureNpmGlobalDirectory();
+            EnsureUserProfileDirectory();
         }
 
         public static class SignalRStartup
@@ -447,7 +460,7 @@ namespace Kudu.Services.Web.App_Start
             routes.MapHttpRouteDual("zip-put-files", "zip/{*path}", new { controller = "Zip", action = "PutItem" }, new { verb = new HttpMethodConstraint("PUT") });
 
             // Zip push deployment
-            routes.MapHttpRoute("zip-push-deploy", "api/zipdeploy", new { controller = "PushDeployment", action = "ZipPushDeploy" }, new { verb = new HttpMethodConstraint("POST") });
+            routes.MapHttpRouteDual("zip-push-deploy", "zipdeploy", new { controller = "PushDeployment", action = "ZipPushDeploy" }, new { verb = new HttpMethodConstraint("POST", "PUT") });
             routes.MapHttpRoute("zip-war-deploy", "api/wardeploy", new { controller = "PushDeployment", action = "WarPushDeploy" }, new { verb = new HttpMethodConstraint("POST") });
 
             // Live Command Line
@@ -489,12 +502,18 @@ namespace Kudu.Services.Web.App_Start
             routes.MapHandlerDual<LogStreamHandler>(kernel, "logstream", "logstream/{*path}");
             routes.MapHttpRoute("recent-logs", "api/logs/recent", new { controller = "Diagnostics", action = "GetRecentLogs" }, new { verb = new HttpMethodConstraint("GET") });
 
-            if (!OSDetector.IsOnWindows())
+            // Enable these for Linux and Windows Containers.
+            if (!OSDetector.IsOnWindows() || (OSDetector.IsOnWindows() && EnvironmentHelper.IsWindowsContainers()))
             {
-                routes.MapHttpRoute("current-docker-logs-zip", "api/logs/docker/zip", new { controller = "Diagnostics", action = "GetDockerLogsZip" }, new { verb = new HttpMethodConstraint("GET") });
-                routes.MapHttpRoute("current-docker-logs", "api/logs/docker", new { controller = "Diagnostics", action = "GetDockerLogs" }, new { verb = new HttpMethodConstraint("GET") });
+                // New endpoints.
+                routes.MapHttpRoute("current-container-logs-zip", "api/logs/container/zip", new { controller = "Diagnostics", action = "GetContainerLogsZip" }, new { verb = new HttpMethodConstraint("GET") });
+                routes.MapHttpRoute("current-container-logs", "api/logs/container", new { controller = "Diagnostics", action = "GetContainerLogs" }, new { verb = new HttpMethodConstraint("GET") });
+
+                // Legacy endpoints for backward compatibility.
+                routes.MapHttpRoute("current-docker-logs-zip", "api/logs/docker/zip", new { controller = "Diagnostics", action = "GetContainerLogsZip" }, new { verb = new HttpMethodConstraint("GET") });
+                routes.MapHttpRoute("current-docker-logs", "api/logs/docker", new { controller = "Diagnostics", action = "GetContainerLogs" }, new { verb = new HttpMethodConstraint("GET") });
             }
-            
+
             var processControllerName = OSDetector.IsOnWindows() ? "Process" : "LinuxProcess";
 
             // Processes
@@ -566,14 +585,14 @@ namespace Kudu.Services.Web.App_Start
             routes.MapHttpRoute("delete-function", "api/functions/{name}", new { controller = "Function", action = "Delete" }, new { verb = new HttpMethodConstraint("DELETE") });
             routes.MapHttpRoute("download-functions", "api/functions/admin/download", new { controller = "Function", action = "DownloadFunctions" }, new { verb = new HttpMethodConstraint("GET") });
 
-            // Docker Hook Endpoint
-            if (!OSDetector.IsOnWindows())
+            // Container Hook Endpoint
+            if (!OSDetector.IsOnWindows() || (OSDetector.IsOnWindows() && EnvironmentHelper.IsWindowsContainers()))
             {
                 routes.MapHttpRoute("docker", "docker/hook", new { controller = "Docker", action = "ReceiveHook" }, new { verb = new HttpMethodConstraint("POST") });
             }
 
             // catch all unregistered url to properly handle not found
-            // this is to work arounf the issue in TraceModule where we see double OnBeginRequest call
+            // this is to work around the issue in TraceModule where we see double OnBeginRequest call
             // for the same request (404 and then 200 statusCode).
             routes.MapHttpRoute("error-404", "{*path}", new { controller = "Error404", action = "Handle" });
         }
@@ -653,6 +672,21 @@ namespace Kudu.Services.Web.App_Start
                 string userProfile = System.Environment.GetEnvironmentVariable("USERPROFILE");
                 FileSystemHelpers.EnsureDirectory(userProfile);
             });
+        }
+
+        private static ISiteExtensionManager GetSiteExtensionManager(IKernel kernel)
+        {
+            var settings = kernel.Get<IDeploymentSettingsManager>();
+            if (settings.GetUseSiteExtensionV2())
+            {
+                if (!string.IsNullOrEmpty(settings.GetSiteExtensionRemoteUrl(out bool isDefault))
+                    && isDefault)
+                {
+                    return kernel.Get<SiteExtensionManagerV2>();
+                }
+            }
+
+            return kernel.Get<SiteExtensionManager>();
         }
 
         private static ITracer GetTracer(IKernel kernel)
@@ -807,7 +841,7 @@ namespace Kudu.Services.Web.App_Start
                 // On Azure, restore nuget packages to d:\home\.nuget so they're persistent. It also helps
                 // work around https://github.com/projectkudu/kudu/issues/2056.
                 // Note that this only applies to project.json scenarios (not packages.config)
-                SetEnvironmentVariableIfNotYetSet("NUGET_PACKAGES", Path.Combine(environment.RootPath, ".nuget"));
+                SetEnvironmentVariableIfNotYetSet("NUGET_PACKAGES", Path.Combine(environment.RootPath, @".nuget\"));
 
                 // Set the telemetry environment variable
                 SetEnvironmentVariableIfNotYetSet("DOTNET_CLI_TELEMETRY_PROFILE", "AzureKudu");
@@ -816,6 +850,35 @@ namespace Kudu.Services.Web.App_Start
             {
                 // Set it slightly differently if outside of Azure to differentiate
                 SetEnvironmentVariableIfNotYetSet("DOTNET_CLI_TELEMETRY_PROFILE", "Kudu");
+            }
+        }
+
+        private static void EnsureValidDeploymentXmlSettings(IEnvironment environment)
+        {
+            var path = GetSettingsPath(environment);
+            if (File.Exists(path))
+            {
+                try
+                {
+                    var settings = new DeploymentSettingsManager(new XmlSettings.Settings(path));
+                    settings.GetValue(SettingsKeys.TraceLevel);
+                }
+                catch (Exception ex)
+                {
+                    DateTime lastWriteTimeUtc = DateTime.MinValue;
+                    OperationManager.SafeExecute(() => lastWriteTimeUtc = File.GetLastWriteTimeUtc(path));
+
+                    // trace initialization error
+                    KuduEventSource.Log.KuduException(
+                        ServerConfiguration.GetApplicationName(),
+                        "NinjectServices.Start",
+                        string.Empty,
+                        string.Empty,
+                        string.Format("Invalid '{0}' is detected and deleted.  Last updated time was {1}.", path, lastWriteTimeUtc),
+                        ex.ToString());
+
+                    File.Delete(path);
+                }
             }
         }
 

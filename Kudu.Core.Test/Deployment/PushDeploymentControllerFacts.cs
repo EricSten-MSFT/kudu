@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Abstractions;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using Kudu.Contracts.Settings;
@@ -32,6 +33,8 @@ namespace Kudu.Core.Test.Deployment
             var directoryBase = new Mock<DirectoryBase>();
             var fileStream = new MemoryStream();
             var requestStream = new MemoryStream(Encoding.UTF8.GetBytes("Request Body"));
+            var streamContent = new StreamContent(requestStream);
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
 
             settings
                 .Setup(s => s.GetValue(It.Is<string>(t => t == SettingsKeys.RunFromZip), It.IsAny<bool>()))
@@ -66,7 +69,7 @@ namespace Kudu.Core.Test.Deployment
             {
                 Request = new HttpRequestMessage(HttpMethod.Post, "https://localhost/zipDeploy")
                 {
-                    Content = new StreamContent(requestStream)
+                    Content = streamContent
                 }
             };
 
@@ -83,6 +86,25 @@ namespace Kudu.Core.Test.Deployment
                 ));
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Theory]
+        [InlineData(
+            "https://management.azure.com/subscriptions/sub-id/resourcegroups/rg-name/providers/Microsoft.Web/sites/site-name/extensions/zipdeploy?api-version=2016-03-01",
+            "https://management.azure.com/subscriptions/sub-id/resourcegroups/rg-name/providers/Microsoft.Web/sites/site-name"
+            )]
+        [InlineData(
+            "https://management.azure.com/subscriptions/sub-id/resourcegroups/rg-name/providers/Microsoft.Web/sites/site-name/slots/staging/extensions/zipdeploy?api-version=2016-03-01",
+            "https://management.azure.com/subscriptions/sub-id/resourcegroups/rg-name/providers/Microsoft.Web/sites/site-name/slots/staging"
+            )]
+        [InlineData(
+            "https://management.azure.com/subscriptions/sub-id/resourcegroups/rg-name/providers/Microsoft.Web/sites",
+            null
+            )]
+        public void ZipDeployGetAsyncLocation(string referer, string expected)
+        {
+            var actual = PushDeploymentController.GetStatusUrl(new Uri(referer));
+            Assert.Equal(expected, actual);
         }
     }
 }

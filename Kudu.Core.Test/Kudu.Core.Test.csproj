@@ -89,6 +89,7 @@
     <Compile Include="AsyncLockFileTests.cs" />
     <Compile Include="AutoSwapHandlerFacts.cs" />
     <Compile Include="DebugConsoleFacts.cs" />
+    <Compile Include="Deployment\DeploymentHelperFacts.cs" />
     <Compile Include="Deployment\FetchDeploymentManagerFacts.cs" />
     <Compile Include="Deployment\Generator\ExternalCommandBuilderFacts.cs" />
     <Compile Include="Deployment\Generator\SiteBuilderFactoryFacts.cs" />
@@ -114,6 +115,7 @@
     <Compile Include="Jobs\BaseJobRunnerFacts.cs" />
     <Compile Include="Jobs\ContinuousJobRunnerFacts.cs" />
     <Compile Include="Jobs\ContinuousJobsManagerFacts.cs" />
+    <Compile Include="Jobs\JobsManagerBaseFacts.cs" />
     <Compile Include="Jobs\ScheduleFacts.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -134,6 +136,7 @@
     <Compile Include="Settings\DeploymentSettingsPrioritiesTests.cs" />
     <Compile Include="Settings\DiagnosticsSettingsManagerTests.cs" />
     <Compile Include="Settings\SettingsProvidersTests.cs" />
+    <Compile Include="Settings\ScmHostingConfigurationsTests.cs" />
     <Compile Include="SSHKeyManagerFacts.cs" />
     <Compile Include="StructuredTextDocumentFacts.cs" />
     <Compile Include="StructuredTextLoggerFacts.cs" />
